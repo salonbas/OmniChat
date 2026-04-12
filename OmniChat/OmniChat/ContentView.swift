@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var selectedModel: String?
     @State private var selectedMode: Int?
     @State private var keyMonitor: Any?
+    @FocusState private var isInputFocused: Bool
 
     private var theme: Theme { Theme(config: appState.config.theme) }
 
@@ -45,6 +46,9 @@ struct ContentView: View {
             }
         }
         .tint(theme.accentColor)
+        .onChange(of: selectedConversation) {
+            isInputFocused = true
+        }
         .onReceive(NotificationCenter.default.publisher(for: .omniClearConversation)) { _ in
             if let conv = selectedConversation {
                 for msg in conv.messages {
@@ -56,6 +60,10 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .omniNewConversation)) { _ in
             createNewConversation()
+            isInputFocused = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            isInputFocused = true
         }
         .onChange(of: appState.pendingPromptVersion) {
             handlePendingPrompt()
@@ -66,6 +74,7 @@ struct ContentView: View {
             } else {
                 selectedConversation = conversations.first
             }
+            isInputFocused = true
             // 全域攔截鍵盤快捷鍵
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                 guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else {
@@ -227,6 +236,7 @@ case 43: // Cmd+,：開啟 config 檔案
                     .textFieldStyle(.plain)
                     .foregroundStyle(theme.inputTextColor)
                     .lineLimit(1...5)
+                    .focused($isInputFocused)
                     .onSubmit {
                         if !NSEvent.modifierFlags.contains(.shift) {
                             sendMessage(to: conversation)
@@ -253,6 +263,7 @@ case 43: // Cmd+,：開啟 config 檔案
         let conv = Conversation(title: "新對話", modeIndex: modeIndex)
         modelContext.insert(conv)
         selectedConversation = conv
+        isInputFocused = true
     }
 
     private func deleteConversations(offsets: IndexSet) {

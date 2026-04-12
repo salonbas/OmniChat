@@ -15,7 +15,8 @@ A CLI-first macOS AI chatbot. Bring your own model — OmniChat doesn't care if 
 ### Homebrew (recommended)
 
 ```bash
-brew install --cask salonbas/tap/omnichat
+brew tap salonbas/omnichat
+brew install --cask omnichat
 ```
 
 This installs `OmniChat.app` and the `omni` CLI.
@@ -74,10 +75,10 @@ omni [OPTIONS] [PROMPT]
 | Command | Description |
 |---------|-------------|
 | `omni --new-window` | Open new window |
-| `omni --new-window "prompt"` | Open new window + send prompt |
-| `omni --new-tab "prompt"` | Open new tab + send prompt |
+| `omni --new` | Create new conversation |
 | `omni --toggle` | Show/hide window |
-| `omni --clear` | Clear current conversation |
+| `omni --clear` | Clear active conversation |
+| `omni --clear -c ID` | Clear specific conversation |
 
 ### Query
 
