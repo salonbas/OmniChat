@@ -14,3 +14,6 @@ Build\ *.txt
 # Temp
 *.swp
 *~
+
+# Internal docs
+RELEASE.md
