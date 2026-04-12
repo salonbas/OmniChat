@@ -21,6 +21,12 @@ brew install --cask omnichat
 
 This installs `OmniChat.app` and the `omni` CLI.
 
+Update:
+
+```bash
+brew update && brew upgrade --cask omnichat
+```
+
 ### Manual
 
 1. Download the latest `.dmg` from [Releases](https://github.com/salonbas/OmniChat/releases)
