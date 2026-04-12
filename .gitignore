@@ -1,0 +1,16 @@
+# Xcode
+OmniChat/build/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcworkspace/xcshareddata/
+DerivedData/
+
+# macOS
+.DS_Store
+
+# Build logs
+Build\ *.txt
+
+# Temp
+*.swp
+*~
