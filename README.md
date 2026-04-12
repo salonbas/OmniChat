@@ -17,7 +17,6 @@ A CLI-first macOS AI chatbot. Bring your own model — OmniChat doesn't care if 
 ```bash
 brew tap salonbas/omnichat
 brew install --cask omnichat
-xattr -cr /Applications/OmniChat.app   # 移除 Gatekeeper 限制（未簽名 app 需要）
 ```
 
 This installs `OmniChat.app` and the `omni` CLI.
