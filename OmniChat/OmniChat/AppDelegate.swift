@@ -63,7 +63,7 @@ final class OmniChatAppDelegate: NSObject, NSApplicationDelegate {
         do {
             return try ModelContainer(for: schema, configurations: [config])
         } catch {
-            fatalError("無法建立 ModelContainer: \(error)")
+            fatalError("Cannot create ModelContainer: \(error)")
         }
     }()
 
@@ -178,7 +178,7 @@ final class OmniChatAppDelegate: NSObject, NSApplicationDelegate {
                     conv.updatedAt = Date()
                     respond(IPCResponse(status: .ok))
                 } else {
-                    respond(IPCResponse(status: .error, message: "找不到對話 ID: \(cid)"))
+                    respond(IPCResponse(status: .error, message: "Conversation ID not found: \(cid)"))
                 }
             } else {
                 // 無 ID，通知 active ContentView 清空
@@ -213,14 +213,14 @@ final class OmniChatAppDelegate: NSObject, NSApplicationDelegate {
             // 驗證 conversationId
             if let cid = request.conversationId {
                 guard let uuid = UUID(uuidString: cid) else {
-                    respond(IPCResponse(status: .error, message: "無效的對話 ID 格式: \(cid)"))
+                    respond(IPCResponse(status: .error, message: "Invalid conversation ID format: \(cid)"))
                     return
                 }
                 let context = modelContainer.mainContext
                 let descriptor = FetchDescriptor<Conversation>(predicate: #Predicate { $0.id == uuid })
                 let count = (try? context.fetchCount(descriptor)) ?? 0
                 if count == 0 {
-                    respond(IPCResponse(status: .error, message: "找不到對話 ID: \(cid)"))
+                    respond(IPCResponse(status: .error, message: "Conversation ID not found: \(cid)"))
                     return
                 }
             }
@@ -233,7 +233,7 @@ final class OmniChatAppDelegate: NSObject, NSApplicationDelegate {
     /// 回覆透過 respond 回傳給 CLI（stream → stdout）
     private func dispatchPrompt(_ request: IPCRequest, forceNew: Bool = false, respond: @escaping (IPCResponse) -> Void) {
         guard let prompt = request.prompt else {
-            respond(IPCResponse(status: .error, message: "缺少 prompt"))
+            respond(IPCResponse(status: .error, message: "Missing prompt"))
             return
         }
 

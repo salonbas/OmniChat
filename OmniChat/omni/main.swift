@@ -10,50 +10,50 @@ import Foundation
 struct Omni: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "omni",
-        abstract: "OmniChat CLI — 與 AI 對話的命令列工具",
+        abstract: "OmniChat CLI — talk to AI from the terminal",
         version: "0.1.0"
     )
 
     // MARK: - 對話參數
 
-    @Argument(help: "要傳送的 prompt")
+    @Argument(help: "Prompt to send")
     var prompt: String?
 
-    @Option(name: .shortAndLong, help: "指定模型或 provider 名稱")
+    @Option(name: .shortAndLong, help: "Model or provider name")
     var model: String?
 
-    @Option(name: [.customShort("p"), .long], help: "指定模式編號")
+    @Option(name: [.customShort("p"), .long], help: "Mode index")
     var mode: Int?
 
-    @Option(name: [.customShort("c"), .long], help: "指定對話 ID")
+    @Option(name: [.customShort("c"), .long], help: "Conversation ID")
     var conversation: String?
 
-    @Flag(name: .long, help: "建立新對話（無 prompt 時單純建立，有 prompt 時建立並送出）")
+    @Flag(name: .long, help: "Start new conversation (creates only if no prompt, otherwise creates and sends)")
     var new: Bool = false
 
-    @Flag(name: .long, help: "不經過 App，直接呼叫腳本")
+    @Flag(name: .long, help: "Bypass app, call provider script directly")
     var silent: Bool = false
 
     // MARK: - 視窗控制
 
-    @Flag(name: .long, help: "開啟新視窗")
+    @Flag(name: .long, help: "Open new window")
     var newWindow: Bool = false
 
-    @Flag(name: .long, help: "切換顯示/隱藏")
+    @Flag(name: .long, help: "Toggle show/hide")
     var toggle: Bool = false
 
-    @Flag(name: .long, help: "清空指定對話（需搭配 -c，省略則清空 active 對話）")
+    @Flag(name: .long, help: "Clear conversation (use with -c for specific, otherwise clears active)")
     var clear: Bool = false
 
     // MARK: - 查詢
 
-    @Flag(name: .long, help: "列出可用模型")
+    @Flag(name: .long, help: "List available models")
     var listModels: Bool = false
 
-    @Flag(name: .long, help: "列出所有模式")
+    @Flag(name: .long, help: "List all modes")
     var listModes: Bool = false
 
-    @Flag(name: .long, help: "列出對話記錄（含 ID）")
+    @Flag(name: .long, help: "List conversations with IDs")
     var history: Bool = false
 
     mutating func run() throws {
@@ -122,7 +122,7 @@ struct Omni: ParsableCommand {
 
         // 對話指令：一定要有 prompt
         guard let promptText, !promptText.isEmpty else {
-            printErr("Error: 請提供 prompt 或使用 --help 查看說明")
+            printErr("Error: Please provide a prompt or use --help")
             throw ExitCode.failure
         }
 
@@ -148,7 +148,7 @@ struct Omni: ParsableCommand {
 
     private func runDirect(prompt: String, stdinContent: String?, config: AppConfig) throws {
         guard let resolved = config.resolveModel(model) else {
-            printErr("Error: 找不到模型 '\(model ?? "default")'")
+            printErr("Error: Model not found '\(model ?? "default")'")
             throw ExitCode.failure
         }
 
@@ -215,7 +215,7 @@ struct Omni: ParsableCommand {
 
         // 檢查 socket 是否存在（App 是否運行）
         if !FileManager.default.fileExists(atPath: socketPath) {
-            printErr("OmniChat App 未運行，正在啟動...")
+            printErr("OmniChat app not running, launching...")
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
             task.arguments = ["-a", "OmniChat"]
@@ -228,7 +228,7 @@ struct Omni: ParsableCommand {
             }
 
             guard FileManager.default.fileExists(atPath: socketPath) else {
-                printErr("Error: 無法連線到 OmniChat App")
+                printErr("Error: Cannot connect to OmniChat app")
                 throw ExitCode.failure
             }
         }
@@ -236,7 +236,7 @@ struct Omni: ParsableCommand {
         // 連線 Unix Domain Socket
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
-            printErr("Error: 無法建立 socket")
+            printErr("Error: Cannot create socket")
             throw ExitCode.failure
         }
         defer { close(fd) }
@@ -262,7 +262,7 @@ struct Omni: ParsableCommand {
         }
 
         guard connectResult == 0 else {
-            printErr("Error: 無法連線到 OmniChat (socket connect failed)")
+            printErr("Error: Cannot connect to OmniChat (socket connect failed)")
             throw ExitCode.failure
         }
 

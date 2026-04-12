@@ -43,7 +43,7 @@ class HotkeyManager {
             },
             userInfo: unmanagedSelf.toOpaque()
         ) else {
-            print("HotkeyManager: 無法建立 event tap，請檢查 Accessibility 權限")
+            print("HotkeyManager: Cannot create event tap, check Accessibility permissions")
             requestAccessibilityPermission()
             return
         }
@@ -54,7 +54,7 @@ class HotkeyManager {
             CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         }
         CGEvent.tapEnable(tap: tap, enable: true)
-        print("HotkeyManager: 已啟動 Right Option 監聽")
+        print("HotkeyManager: Right Option listener started")
     }
 
     func stop() {

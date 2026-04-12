@@ -17,7 +17,7 @@ struct OmniChatApp: App {
         .commands {
             // 攔截 Cmd+N，改為開新視窗
             CommandGroup(replacing: .newItem) {
-                Button("新視窗") {
+                Button("New Window") {
                     appDelegate.openNewWindow()
                 }
                 .keyboardShortcut("n", modifiers: .command)

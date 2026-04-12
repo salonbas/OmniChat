@@ -40,7 +40,7 @@ struct ContentView: View {
                 if let conv = selectedConversation {
                     chatView(for: conv)
                 } else {
-                    ContentUnavailableView("選擇或建立對話", systemImage: "bubble.left.and.bubble.right")
+                    ContentUnavailableView("Select or create a conversation", systemImage: "bubble.left.and.bubble.right")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -134,7 +134,7 @@ case 43: // Cmd+,：開啟 config 檔案
                         .foregroundStyle(theme.assistantTextColor)
                         .tag(conv)
                         .contextMenu {
-                            Button("刪除", role: .destructive) {
+                            Button("Delete", role: .destructive) {
                                 if selectedConversation == conv {
                                     selectedConversation = nil
                                 }
@@ -157,7 +157,7 @@ case 43: // Cmd+,：開啟 config 檔案
             // 頂部：模型與模式選擇
             HStack {
                 // 模式選擇
-                Picker("模式", selection: Binding(
+                Picker("Mode", selection: Binding(
                     get: { selectedMode ?? appState.config.defaultMode },
                     set: { selectedMode = $0 }
                 )) {
@@ -168,7 +168,7 @@ case 43: // Cmd+,：開啟 config 檔案
                 .frame(width: 120)
 
                 // 模型選擇
-                Picker("模型", selection: Binding(
+                Picker("Model", selection: Binding(
                     get: { selectedModel ?? appState.config.providers[appState.config.defaultProvider]?.defaultModel ?? "" },
                     set: { selectedModel = $0 }
                 )) {
@@ -232,7 +232,7 @@ case 43: // Cmd+,：開啟 config 檔案
 
             // 輸入框
             HStack(alignment: .bottom) {
-                TextField("輸入訊息...", text: $inputText, axis: .vertical)
+                TextField("Type a message...", text: $inputText, axis: .vertical)
                     .textFieldStyle(.plain)
                     .foregroundStyle(theme.inputTextColor)
                     .lineLimit(1...5)
@@ -260,7 +260,7 @@ case 43: // Cmd+,：開啟 config 檔案
 
     private func createNewConversation() {
         let modeIndex = selectedMode ?? appState.config.defaultMode
-        let conv = Conversation(title: "新對話", modeIndex: modeIndex)
+        let conv = Conversation(title: "New Chat", modeIndex: modeIndex)
         modelContext.insert(conv)
         selectedConversation = conv
         isInputFocused = true

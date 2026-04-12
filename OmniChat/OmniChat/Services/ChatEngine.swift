@@ -103,7 +103,7 @@ class ChatEngine {
                     continuation.resume()
                 } else {
                     let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                    let errMsg = String(data: errData, encoding: .utf8) ?? "未知錯誤"
+                    let errMsg = String(data: errData, encoding: .utf8) ?? "Unknown error"
                     continuation.resume(throwing: ChatError.scriptFailed(errMsg))
                 }
             }
@@ -125,8 +125,8 @@ enum ChatError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .modelNotFound(let name): return "找不到模型: \(name)"
-        case .scriptFailed(let msg): return "腳本執行失敗: \(msg)"
+        case .modelNotFound(let name): return "Model not found: \(name)"
+        case .scriptFailed(let msg): return "Script execution failed: \(msg)"
         }
     }
 }

@@ -23,7 +23,7 @@ class UDSServer {
         // 建立 socket
         serverFD = socket(AF_UNIX, SOCK_STREAM, 0)
         guard serverFD >= 0 else {
-            print("UDS: 無法建立 socket")
+            print("UDS: Cannot create socket")
             return
         }
 
@@ -47,20 +47,20 @@ class UDSServer {
         }
 
         guard bindResult == 0 else {
-            print("UDS: bind 失敗 (\(String(cString: strerror(errno))))")
+            print("UDS: bind failed (\(String(cString: strerror(errno))))")
             close(serverFD)
             return
         }
 
         // Listen
         guard listen(serverFD, 5) == 0 else {
-            print("UDS: listen 失敗")
+            print("UDS: listen failed")
             close(serverFD)
             return
         }
 
         isRunning = true
-        print("UDS: 正在監聽 \(socketPath)")
+        print("UDS: Listening on \(socketPath)")
 
         // 在背景執行緒接受連線
         Task.detached { [weak self] in
@@ -109,7 +109,7 @@ class UDSServer {
         let jsonData = Data(buffer[buffer.startIndex..<newlineIndex])
 
         guard let request = try? JSONDecoder().decode(IPCRequest.self, from: jsonData) else {
-            let err = IPCResponse(status: .error, message: "無法解析請求")
+            let err = IPCResponse(status: .error, message: "Cannot parse request")
             sendResponse(err, to: fd)
             close(fd)
             return
