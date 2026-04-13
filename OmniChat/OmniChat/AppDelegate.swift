@@ -1,6 +1,6 @@
 // AppDelegate.swift
 // OmniChat
-// 管理 App 生命週期、視窗建立、全域 hotkey
+// 管理 App 生命週期、視窗建立、全域 hotkey、語音管線
 
 import AppKit
 import SwiftUI
@@ -18,6 +18,7 @@ extension Notification.Name {
 class AppState {
     var config: AppConfig
     let udsServer = UDSServer()
+    let voicePipeline = VoicePipeline()
 
     /// CLI 透過 IPC 送來的待處理請求（ContentView 觀察並執行）
     var pendingPrompt: PendingPrompt?
@@ -35,6 +36,7 @@ class AppState {
 
     init() {
         self.config = (try? AppConfig.load()) ?? AppConfig.defaultConfig()
+        voicePipeline.configure(config: self.config)
     }
 
     func startServer(onRequest: @escaping (IPCRequest, @escaping (IPCResponse) -> Void) -> Void) {
@@ -74,7 +76,7 @@ final class OmniChatAppDelegate: NSObject, NSApplicationDelegate {
         openNewWindow()
         // 啟動 UDS Server（接收 CLI 的 IPC 請求）
         startUDSServer()
-        // 設定 hotkey
+        // 設定 hotkey（含語音錄音）
         setupHotkeys()
         // 設定 Dock 不顯示（可選）
         // NSApp.setActivationPolicy(.accessory)
@@ -82,6 +84,7 @@ final class OmniChatAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         appState.stopServer()
+        appState.voicePipeline.stopAll()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
@@ -130,6 +133,20 @@ final class OmniChatAppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 self.focusApp()
             }
+        }
+
+        // 長按 Right Option: 開始錄音
+        hotkeyManager.onLongPressStart = { [weak self] in
+            guard let self else { return }
+            self.appState.voicePipeline.beginRecording()
+            self.hotkeyManager.isRecording = true
+        }
+
+        // 單擊 Right Option（錄音中）: 結束錄音
+        hotkeyManager.onSingleTap = { [weak self] in
+            guard let self else { return }
+            self.appState.voicePipeline.endRecording()
+            self.hotkeyManager.isRecording = false
         }
 
         hotkeyManager.start(config: appState.config)

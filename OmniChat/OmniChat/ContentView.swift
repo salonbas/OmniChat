@@ -19,6 +19,9 @@ struct ContentView: View {
     @State private var keyMonitor: Any?
     @FocusState private var isInputFocused: Bool
 
+    // 錄音脈動動畫
+    @State private var pulseAnimation = false
+
     private var theme: Theme { Theme(config: appState.config.theme) }
 
     var body: some View {
@@ -68,6 +71,13 @@ struct ContentView: View {
         .onChange(of: appState.pendingPromptVersion) {
             handlePendingPrompt()
         }
+        // 監聽 VoicePipeline 串流文字
+        .onChange(of: appState.voicePipeline.currentTranscript) {
+            let transcript = appState.voicePipeline.currentTranscript
+            if !transcript.isEmpty {
+                streamingText = transcript
+            }
+        }
         .onAppear {
             if conversations.isEmpty {
                 createNewConversation()
@@ -75,6 +85,10 @@ struct ContentView: View {
                 selectedConversation = conversations.first
             }
             isInputFocused = true
+
+            // 設定 VoicePipeline 回呼
+            setupVoicePipelineCallbacks()
+
             // 全域攔截鍵盤快捷鍵
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                 guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else {
@@ -154,7 +168,7 @@ case 43: // Cmd+,：開啟 config 檔案
     @ViewBuilder
     private func chatView(for conversation: Conversation) -> some View {
         VStack(spacing: 0) {
-            // 頂部：模型與模式選擇
+            // 頂部：模型與模式選擇 + 語音狀態
             HStack {
                 // 模式選擇
                 Picker("Mode", selection: Binding(
@@ -181,6 +195,9 @@ case 43: // Cmd+,：開啟 config 檔案
                 .frame(width: 200)
 
                 Spacer()
+
+                // 語音狀態指示器
+                voiceStatusIndicator
 
                 if chatEngine.isStreaming {
                     ProgressView()
@@ -232,6 +249,17 @@ case 43: // Cmd+,：開啟 config 檔案
 
             // 輸入框
             HStack(alignment: .bottom) {
+                // 錄音指示器
+                if appState.voicePipeline.state == .recording {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 12, height: 12)
+                        .scaleEffect(pulseAnimation ? 1.3 : 1.0)
+                        .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: pulseAnimation)
+                        .onAppear { pulseAnimation = true }
+                        .onDisappear { pulseAnimation = false }
+                }
+
                 TextField("Type a message...", text: $inputText, axis: .vertical)
                     .textFieldStyle(.plain)
                     .foregroundStyle(theme.inputTextColor)
@@ -253,6 +281,86 @@ case 43: // Cmd+,：開啟 config 檔案
             }
             .padding()
             .background(Color.clear)
+        }
+    }
+
+    // MARK: - 語音狀態指示器
+
+    @ViewBuilder
+    private var voiceStatusIndicator: some View {
+        let voiceState = appState.voicePipeline.state
+        switch voiceState {
+        case .recording:
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(.red)
+                    .frame(width: 8, height: 8)
+                Text("Recording")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        case .processing:
+            HStack(spacing: 4) {
+                ProgressView()
+                    .scaleEffect(0.5)
+                Text("Processing")
+                    .font(.caption)
+                    .foregroundStyle(theme.accentColor)
+            }
+        case .speaking:
+            HStack(spacing: 4) {
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.caption)
+                    .foregroundStyle(theme.accentColor)
+                Text("Speaking")
+                    .font(.caption)
+                    .foregroundStyle(theme.accentColor)
+            }
+        case .idle:
+            EmptyView()
+        }
+    }
+
+    // MARK: - VoicePipeline 整合
+
+    private func setupVoicePipelineCallbacks() {
+        let pipeline = appState.voicePipeline
+
+        // Gemma 串流文字 → UI
+        pipeline.onTextChunk = { _ in
+            // streamingText 已透過 onChange(of: currentTranscript) 更新
+        }
+
+        // 語音對話完成 → 儲存訊息
+        pipeline.onComplete = { [self] fullResponse in
+            guard let conv = selectedConversation else { return }
+
+            // 新增使用者語音訊息
+            let userMsg = Message(role: "user", content: "[Voice]")
+            userMsg.conversation = conv
+            conv.messages.append(userMsg)
+
+            // 新增 AI 回應
+            let assistantMsg = Message(role: "assistant", content: fullResponse)
+            assistantMsg.conversation = conv
+            conv.messages.append(assistantMsg)
+            conv.updatedAt = Date()
+
+            // 更新標題
+            if conv.messages.count <= 2 {
+                conv.title = String(fullResponse.prefix(30))
+            }
+
+            streamingText = ""
+        }
+
+        // 錯誤處理
+        pipeline.onError = { [self] errorMsg in
+            guard let conv = selectedConversation else { return }
+            let msg = Message(role: "assistant", content: "Voice error: \(errorMsg)")
+            msg.conversation = conv
+            conv.messages.append(msg)
+            streamingText = ""
         }
     }
 
@@ -442,12 +550,20 @@ struct MessageBubble: View {
         HStack(alignment: .top) {
             if message.role == "user" {
                 Spacer()
-                Text(message.content)
-                    .foregroundStyle(theme.userTextColor)
-                    .padding(10)
-                    .background(theme.userBubbleColor.opacity(0.8))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .textSelection(.enabled)
+                HStack(spacing: 6) {
+                    // 語音訊息圖示
+                    if message.content == "[Voice]" {
+                        Image(systemName: "mic.fill")
+                            .font(.caption)
+                            .foregroundStyle(theme.userTextColor.opacity(0.7))
+                    }
+                    Text(message.content)
+                        .foregroundStyle(theme.userTextColor)
+                }
+                .padding(10)
+                .background(theme.userBubbleColor.opacity(0.8))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .textSelection(.enabled)
             } else {
                 Image(systemName: "sparkles")
                     .foregroundStyle(theme.accentColor)

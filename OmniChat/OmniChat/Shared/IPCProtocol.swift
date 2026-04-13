@@ -87,20 +87,24 @@ struct IPCResponse: Codable, Sendable {
 struct ProviderInput: Codable, Sendable {
     let messages: [ChatMessage]
     let model: String
+    var audioPath: String?  // 語音對話時的音訊檔案路徑
 
-    init(messages: [ChatMessage], model: String) {
+    init(messages: [ChatMessage], model: String, audioPath: String? = nil) {
         self.messages = messages
         self.model = model
+        self.audioPath = audioPath
     }
 }
 
 struct ChatMessage: Codable, Sendable {
     let role: String
     let content: String
+    var audioPath: String?  // 語音訊息的音訊檔案路徑
 
-    init(role: String, content: String) {
+    init(role: String, content: String, audioPath: String? = nil) {
         self.role = role
         self.content = content
+        self.audioPath = audioPath
     }
 }
 
@@ -117,6 +121,7 @@ struct AppConfig: Codable, Sendable {
     var theme: ThemeConfig?
     var maxConcurrentModels: Int?  // 同時可跑幾個模型請求（預設 1）
     var hotkey: HotkeyConfig?
+    var voice: VoiceConfig?        // 語音對話設定
 
     struct ProviderConfig: Codable, Sendable {
         var command: String
@@ -146,6 +151,15 @@ struct AppConfig: Codable, Sendable {
         var doubleTapKey: String
         var doubleTapInterval: Int
         var longPressThreshold: Int
+    }
+
+    /// 語音對話設定
+    struct VoiceConfig: Codable, Sendable {
+        var enabled: Bool                    // 是否啟用語音功能
+        var providerCommand: String          // 語音 provider 腳本路徑（支援 --audio）
+        var ttsCommand: String               // TTS 腳本路徑（Kokoro）
+        var recordSampleRate: Int?           // 錄音取樣率（預設 16000）
+        var feedbackType: String?            // "haptic", "sound", "both"（預設 "both"）
     }
 
     // MARK: 路徑
@@ -198,6 +212,18 @@ struct AppConfig: Codable, Sendable {
         return (expandPath(provider.command), provider.defaultModel)
     }
 
+    /// 解析語音 provider 指令路徑
+    var resolvedVoiceCommand: String? {
+        guard let voice = voice, voice.enabled else { return nil }
+        return expandPath(voice.providerCommand)
+    }
+
+    /// 解析 TTS 指令路徑
+    var resolvedTTSCommand: String? {
+        guard let voice = voice, voice.enabled else { return nil }
+        return expandPath(voice.ttsCommand)
+    }
+
     var resolvedSocketPath: String {
         expandPath(socketPath)
     }
@@ -246,7 +272,14 @@ struct AppConfig: Codable, Sendable {
                 inputTextColor: "#DADADA",        // iTerm2 Foreground (Dark, P3)
                 accentColor: "#78E3FC"            // iTerm2 Cursor (Dark, P3)
             ),
-            hotkey: HotkeyConfig(doubleTapKey: "rightOption", doubleTapInterval: 300, longPressThreshold: 500)
+            hotkey: HotkeyConfig(doubleTapKey: "rightOption", doubleTapInterval: 300, longPressThreshold: 500),
+            voice: VoiceConfig(
+                enabled: true,
+                providerCommand: "~/.config/omnichat/providers/gemma_voice.sh",
+                ttsCommand: "~/.config/omnichat/tts/kokoro_tts.sh",
+                recordSampleRate: 16000,
+                feedbackType: "both"
+            )
         )
     }
 

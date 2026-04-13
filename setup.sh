@@ -58,7 +58,14 @@ cat > "$CONFIG_DIR/config.json" << 'CONFIGEOF'
       "models": ["gemma-4-E4B"]
     }
   },
-  "socketPath": "~/.config/omnichat/omnichat.sock"
+  "socketPath": "~/.config/omnichat/omnichat.sock",
+  "voice": {
+    "enabled": true,
+    "providerCommand": "~/.config/omnichat/providers/gemma_voice.sh",
+    "ttsCommand": "~/.config/omnichat/tts/kokoro_tts.sh",
+    "recordSampleRate": 16000,
+    "feedbackType": "both"
+  }
 }
 CONFIGEOF
 
@@ -105,11 +112,50 @@ SCRIPTEOF
 chmod +x "$PROVIDERS_DIR/ollama.sh"
 chmod +x "$PROVIDERS_DIR/litert.sh"
 
-echo "✅ 設定完成"
+# Voice provider（Gemma 4 多模態，支援 --audio）
+cat > "$PROVIDERS_DIR/gemma_voice.sh" << 'SCRIPTEOF'
+#!/bin/bash
+# OmniChat Voice Provider (Gemma 4 Multimodal)
+INPUT=$(cat)
+AUDIO_PATH=$(echo "$INPUT" | jq -r '.audioPath // empty')
+PROMPT=$(echo "$INPUT" | jq -r '
+  .messages | map(
+    if .role == "system" then "System: " + .content
+    elif .role == "user" then "User: " + .content
+    elif .role == "assistant" then "Assistant: " + .content
+    else .content
+    end
+  ) | join("\n\n")
+')
+
+if [ -n "$AUDIO_PATH" ] && [ -f "$AUDIO_PATH" ]; then
+    /Users/taishen/.local/bin/litert-lm run \
+        /Users/taishen/active/ai_env/gemma-4-E4B-it.litertlm \
+        -b gpu --audio "$AUDIO_PATH" --prompt "$PROMPT" 2>/dev/null \
+        | sed 's/<pad>//g'
+else
+    /Users/taishen/.local/bin/litert-lm run \
+        /Users/taishen/active/ai_env/gemma-4-E4B-it.litertlm \
+        -b gpu --prompt "$PROMPT" 2>/dev/null \
+        | sed 's/<pad>//g'
+fi
+SCRIPTEOF
+
+chmod +x "$PROVIDERS_DIR/gemma_voice.sh"
+
+# 建立語音暫存目錄
+mkdir -p "$CONFIG_DIR/voice_tmp"
+mkdir -p "$CONFIG_DIR/tts_output"
+
+echo "Setup complete!"
 echo ""
 echo "Providers:"
-echo "  ollama  → llama3.1:latest (需要 ollama serve 運行中)"
-echo "  litert  → gemma-4-E4B"
+echo "  ollama      -> llama3.1:latest (needs ollama serve running)"
+echo "  litert      -> gemma-4-E4B"
+echo "  gemma_voice -> gemma-4-E4B (multimodal, --audio support)"
 echo ""
-echo "測試："
+echo "Voice:"
+echo "  Run ./setup_tts.sh to install Kokoro-82M TTS"
+echo ""
+echo "Test:"
 echo "  echo '{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"model\":\"llama3.1:latest\"}' | ~/.config/omnichat/providers/ollama.sh"
