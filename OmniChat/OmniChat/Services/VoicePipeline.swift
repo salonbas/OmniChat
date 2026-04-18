@@ -11,6 +11,7 @@ import SwiftData
 /// 累積串流文字，偵測句子邊界後輸出完整句子
 class SentenceBuffer {
     private var buffer = ""
+    var minLength: Int = 8
 
     /// 餵入 chunk，回傳完成的句子列表
     func feed(_ chunk: String) -> [String] {
@@ -59,11 +60,20 @@ class VoicePipeline {
 
     var state: State = .idle
     var currentTranscript = ""  // 目前串流文字（顯示在 UI）
+    var ttsEnabled = false      // TTS 開關
 
     private let recorder = AudioRecorder()
-    private let ttsEngine = TTSEngine()
+    let ttsEngine = TTSEngine()
     private let playbackQueue = AudioPlaybackQueue()
     private let sentenceBuffer = SentenceBuffer()
+
+    // 用於讓 stop 後的 in-flight TTS worker 結果自動丟棄
+    private var currentGenerationID = 0
+
+    // TTS worker 並發控制
+    private var maxTTSWorkers = 2
+    private var ttsActiveWorkers = 0
+    private var ttsPendingTexts: [String] = []
 
     // 錄音佇列：等待處理的音訊檔案
     private var recordingQueue: [URL] = []
@@ -79,9 +89,22 @@ class VoicePipeline {
     // 回呼：錯誤發生
     var onError: ((String) -> Void)?
 
+    /// 是否有可用的 audio provider
+    var hasAudioProvider: Bool {
+        guard let config = config else { return false }
+        return config.resolveAudioProvider() != nil ||
+               (config.voice?.enabled == true && config.voice?.providerCommand.isEmpty == false)
+    }
+
     /// 初始化管線設定
     func configure(config: AppConfig) {
         self.config = config
+        maxTTSWorkers = config.voice?.ttsMaxConcurrent ?? 2
+        playbackQueue.sentenceGap = config.voice?.ttsSentenceGap ?? 0
+        playbackQueue.paragraphGap = config.voice?.ttsParagraphGap ?? 1
+        playbackQueue.playbackRate = Float(config.voice?.ttsSpeed ?? 1.5)
+        sentenceBuffer.minLength = config.voice?.ttsMinLength ?? 8
+        print("[VoicePipeline] 設定已套用: maxWorkers=\(maxTTSWorkers) sentenceGap=\(playbackQueue.sentenceGap) paragraphGap=\(playbackQueue.paragraphGap)")
     }
 
     // MARK: - 錄音控制（由 HotkeyManager 呼叫）
@@ -278,18 +301,65 @@ class VoicePipeline {
         ttsEngine.cleanup()
     }
 
-    /// 將句子送入 TTS 並排入播放佇列
+    /// 將句子送入 TTS 並排入播放佇列（TTS 關閉時跳過）
     private func enqueueTTS(_ sentence: String) {
+        guard ttsEnabled else { return }
+        ttsPendingTexts.append(sentence)
+        dispatchTTSWorkers()
+    }
+
+    private func dispatchTTSWorkers() {
         guard let config = config else { return }
 
-        Task {
-            do {
-                let audioURL = try await ttsEngine.synthesize(text: sentence, config: config)
-                playbackQueue.enqueue(audioURL)
-            } catch {
-                print("VoicePipeline: TTS 失敗 - \(error.localizedDescription)")
+        while ttsActiveWorkers < maxTTSWorkers, !ttsPendingTexts.isEmpty {
+            let sentence = ttsPendingTexts.removeFirst()
+            ttsActiveWorkers += 1
+            let genID = currentGenerationID
+
+            Task {
+                do {
+                    let audioURL = try await self.ttsEngine.synthesize(text: sentence, config: config)
+                    // 世代已換（使用者 stop），丟棄結果
+                    guard self.currentGenerationID == genID else { return }
+                    self.playbackQueue.enqueue(audioURL)
+                } catch {
+                    print("VoicePipeline: TTS 失敗 - \(error.localizedDescription)")
+                }
+                self.ttsActiveWorkers -= 1
+                self.dispatchTTSWorkers()  // 繼續處理待處理
             }
         }
+    }
+
+    // MARK: - 文字模式 TTS（供 ContentView 呼叫）
+
+    /// 餵入文字 chunk，句子完成時立即送 TTS
+    nonisolated func feedTextForTTS(_ chunk: String) {
+        MainActor.assumeIsolated {
+            guard ttsEnabled else { return }
+            let sentences = sentenceBuffer.feed(chunk)
+            for sentence in sentences {
+                enqueueTTS(sentence)
+            }
+        }
+    }
+
+    /// 文字串流結束，flush 剩餘句子
+    nonisolated func flushTTS() {
+        MainActor.assumeIsolated {
+            guard ttsEnabled else { return }
+            if let remaining = sentenceBuffer.flush() {
+                enqueueTTS(remaining)
+            }
+        }
+    }
+
+    /// 停止當前這一輪的生成和音訊播放（不影響錄音）
+    func stopCurrentGeneration() {
+        currentGenerationID += 1  // 讓所有 in-flight TTS worker 結果自動丟棄
+        ttsPendingTexts.removeAll()  // 清除待處理的 TTS
+        sentenceBuffer.reset()
+        playbackQueue.stopAll()
     }
 
     /// 停止所有活動
@@ -297,9 +367,8 @@ class VoicePipeline {
         if recorder.isRecording {
             recorder.stopRecording()
         }
-        playbackQueue.stopAll()
+        stopCurrentGeneration()
         recordingQueue.removeAll()
-        sentenceBuffer.reset()
         currentTranscript = ""
         state = .idle
     }

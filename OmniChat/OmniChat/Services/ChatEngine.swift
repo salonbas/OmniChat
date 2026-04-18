@@ -74,47 +74,59 @@ class ChatEngine {
         isStreaming = true
         defer { isStreaming = false }
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/bash")
-            process.arguments = ["-c", resolved.command]
+        // 用 nonisolated(unsafe) 讓 onCancel closure 能存取 process
+        nonisolated(unsafe) var currentProcess: Process? = nil
+        nonisolated(unsafe) var cancelled = false
 
-            let stdinPipe = Pipe()
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardInput = stdinPipe
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let process = Process()
+                currentProcess = process
+                process.executableURL = URL(fileURLWithPath: "/bin/bash")
+                process.arguments = ["-c", resolved.command]
 
-            // 讀取 stdout（在背景執行緒）
-            stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                guard !data.isEmpty else { return }
-                if let text = String(data: data, encoding: .utf8), !text.isEmpty {
-                    Task { @MainActor in
-                        onChunk(text)
+                let stdinPipe = Pipe()
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                process.standardInput = stdinPipe
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
+
+                // 讀取 stdout（在背景執行緒）
+                stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    guard !data.isEmpty else { return }
+                    if let text = String(data: data, encoding: .utf8), !text.isEmpty {
+                        Task { @MainActor in
+                            onChunk(text)
+                        }
                     }
                 }
-            }
 
-            process.terminationHandler = { proc in
-                stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                if proc.terminationStatus == 0 {
-                    continuation.resume()
-                } else {
-                    let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                    let errMsg = String(data: errData, encoding: .utf8) ?? "Unknown error"
-                    continuation.resume(throwing: ChatError.scriptFailed(errMsg))
+                process.terminationHandler = { proc in
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                    if cancelled {
+                        continuation.resume(throwing: CancellationError())
+                    } else if proc.terminationStatus == 0 {
+                        continuation.resume()
+                    } else {
+                        let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                        let errMsg = String(data: errData, encoding: .utf8) ?? "Unknown error"
+                        continuation.resume(throwing: ChatError.scriptFailed(errMsg))
+                    }
+                }
+
+                do {
+                    try process.run()
+                    stdinPipe.fileHandleForWriting.write(inputJSON)
+                    stdinPipe.fileHandleForWriting.closeFile()
+                } catch {
+                    continuation.resume(throwing: error)
                 }
             }
-
-            do {
-                try process.run()
-                stdinPipe.fileHandleForWriting.write(inputJSON)
-                stdinPipe.fileHandleForWriting.closeFile()
-            } catch {
-                continuation.resume(throwing: error)
-            }
+        } onCancel: {
+            cancelled = true
+            currentProcess?.terminate()
         }
     }
 }

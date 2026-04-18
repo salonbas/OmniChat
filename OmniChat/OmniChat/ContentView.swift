@@ -17,6 +17,8 @@ struct ContentView: View {
     @State private var selectedModel: String?
     @State private var selectedMode: Int?
     @State private var keyMonitor: Any?
+    @State private var showSettings = false
+    @State private var streamingTask: Task<Void, Never>?
     @FocusState private var isInputFocused: Bool
 
     // 錄音脈動動畫
@@ -47,6 +49,11 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+                .environment(appState)
+                .frame(minWidth: 600, minHeight: 500)
         }
         .tint(theme.accentColor)
         .onChange(of: selectedConversation) {
@@ -101,8 +108,12 @@ struct ContentView: View {
                 case 17: // Cmd+T：同視窗新增對話
                     createNewConversation()
                     return nil
-case 43: // Cmd+,：開啟 config 檔案
-                    openConfigFile()
+case 43: // Cmd+,：開啟設定頁面（設定頁面中再按則開啟 config 檔案）
+                    if showSettings {
+                        NotificationCenter.default.post(name: .omniOpenConfig, object: nil)
+                    } else {
+                        showSettings = true
+                    }
                     return nil
                 default:
                     break
@@ -181,12 +192,12 @@ case 43: // Cmd+,：開啟 config 檔案
                 }
                 .frame(width: 120)
 
-                // 模型選擇
+                // 模型選擇（僅顯示文字 provider）
                 Picker("Model", selection: Binding(
                     get: { selectedModel ?? appState.config.providers[appState.config.defaultProvider]?.defaultModel ?? "" },
                     set: { selectedModel = $0 }
                 )) {
-                    ForEach(Array(appState.config.providers.sorted(by: { $0.key < $1.key })), id: \.key) { name, provider in
+                    ForEach(Array(appState.config.providers.filter { $0.value.inputType != .audio }.sorted(by: { $0.key < $1.key })), id: \.key) { name, provider in
                         ForEach(provider.models, id: \.self) { model in
                             Text("\(name)/\(model)").tag(model)
                         }
@@ -196,10 +207,38 @@ case 43: // Cmd+,：開啟 config 檔案
 
                 Spacer()
 
+                // TTS 開關
+                Button(action: {
+                    appState.voicePipeline.ttsEnabled.toggle()
+                }) {
+                    Image(systemName: appState.voicePipeline.ttsEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                        .font(.caption)
+                        .foregroundStyle(appState.voicePipeline.ttsEnabled ? theme.accentColor : theme.assistantTextColor.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+                .help(appState.voicePipeline.ttsEnabled ? "TTS On" : "TTS Off")
+
+                // Reload config
+                Button(action: reloadConfig) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption)
+                        .foregroundStyle(theme.assistantTextColor.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+                .help("Reload Config")
+
                 // 語音狀態指示器
                 voiceStatusIndicator
 
                 if chatEngine.isStreaming {
+                    Button(action: stopCurrentGeneration) {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.red.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop Response")
+
                     ProgressView()
                         .scaleEffect(0.7)
                 }
@@ -366,6 +405,19 @@ case 43: // Cmd+,：開啟 config 檔案
 
     // MARK: - Actions
 
+    private func stopCurrentGeneration() {
+        streamingTask?.cancel()
+        streamingTask = nil
+        appState.voicePipeline.stopCurrentGeneration()
+    }
+
+    private func reloadConfig() {
+        guard let newConfig = try? AppConfig.load() else { return }
+        appState.config = newConfig
+        appState.voicePipeline.configure(config: newConfig)
+        chatEngine.setMaxConcurrent(newConfig.maxConcurrentModels ?? 1)
+    }
+
     private func createNewConversation() {
         let modeIndex = selectedMode ?? appState.config.defaultMode
         let conv = Conversation(title: "New Chat", modeIndex: modeIndex)
@@ -434,20 +486,32 @@ case 43: // Cmd+,：開啟 config 檔案
 
         // 呼叫 AI
         streamingText = ""
-        Task {
+        streamingTask?.cancel()
+        streamingTask = Task {
             do {
                 try await chatEngine.sendMessage(
                     messages: chatMessages,
                     config: appState.config,
                     modelOverride: selectedModel
-                ) { chunk in
+                ) { [self] chunk in
                     streamingText += chunk
+                    appState.voicePipeline.feedTextForTTS(chunk)
                 }
 
+                appState.voicePipeline.flushTTS()
                 let assistantMsg = Message(role: "assistant", content: streamingText, model: selectedModel)
                 assistantMsg.conversation = conversation
                 conversation.messages.append(assistantMsg)
                 conversation.updatedAt = Date()
+                streamingText = ""
+            } catch is CancellationError {
+                // 使用者主動停止，保留已串流的部分內容
+                if !streamingText.isEmpty {
+                    let assistantMsg = Message(role: "assistant", content: streamingText)
+                    assistantMsg.conversation = conversation
+                    conversation.messages.append(assistantMsg)
+                    conversation.updatedAt = Date()
+                }
                 streamingText = ""
             } catch {
                 let errorMsg = Message(role: "assistant", content: "⚠️ \(error.localizedDescription)")
@@ -516,11 +580,13 @@ case 43: // Cmd+,：開啟 config 檔案
                     messages: chatMessages,
                     config: appState.config,
                     modelOverride: pending.model
-                ) { chunk in
+                ) { [self] chunk in
                     streamingText += chunk
                     respond(IPCResponse(status: .streaming, chunk: chunk))
+                    appState.voicePipeline.feedTextForTTS(chunk)
                 }
 
+                appState.voicePipeline.flushTTS()
                 // 儲存回覆
                 let assistantMsg = Message(role: "assistant", content: streamingText, model: pending.model)
                 assistantMsg.conversation = conv

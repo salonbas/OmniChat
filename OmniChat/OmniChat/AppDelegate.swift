@@ -9,6 +9,7 @@ import SwiftData
 extension Notification.Name {
     static let omniClearConversation = Notification.Name("omniClearConversation")
     static let omniNewConversation = Notification.Name("omniNewConversation")
+    static let omniOpenConfig = Notification.Name("omniOpenConfig")
 }
 
 // MARK: - 全域 App 狀態
@@ -70,7 +71,7 @@ final class OmniChatAppDelegate: NSObject, NSApplicationDelegate {
     }()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // 設定並行模型限制
+        // 設定並行模型��制
         chatEngine.setMaxConcurrent(appState.config.maxConcurrentModels ?? 1)
         // 建立主視窗
         openNewWindow()
@@ -78,6 +79,8 @@ final class OmniChatAppDelegate: NSObject, NSApplicationDelegate {
         startUDSServer()
         // 設定 hotkey（含語音錄音）
         setupHotkeys()
+        // ��動 TTS server（常駐模式）
+        appState.voicePipeline.ttsEngine.startServer(config: appState.config)
         // 設定 Dock 不顯示（可選）
         // NSApp.setActivationPolicy(.accessory)
     }
@@ -85,6 +88,8 @@ final class OmniChatAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         appState.stopServer()
         appState.voicePipeline.stopAll()
+        // 關閉 TTS server
+        appState.voicePipeline.ttsEngine.stopServer()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
@@ -135,9 +140,14 @@ final class OmniChatAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // 長按 Right Option: 開始錄音
+        // 長按 Right Option: 開始錄音（先檢查 audio provider）
         hotkeyManager.onLongPressStart = { [weak self] in
             guard let self else { return }
+            // 檢查是否有 audio provider
+            guard self.appState.voicePipeline.hasAudioProvider else {
+                self.showAudioProviderError()
+                return
+            }
             self.appState.voicePipeline.beginRecording()
             self.hotkeyManager.isRecording = true
         }
@@ -207,7 +217,8 @@ final class OmniChatAppDelegate: NSObject, NSApplicationDelegate {
             let models = appState.config.providers.sorted(by: { $0.key < $1.key }).flatMap { (name, provider) in
                 provider.models.map { m in
                     let marker = (m == provider.defaultModel) ? " (default)" : ""
-                    return "\(name): \(m)\(marker)"
+                    let typeTag = provider.inputType == .audio ? " [audio]" : ""
+                    return "\(name): \(m)\(marker)\(typeTag)"
                 }
             }
             respond(IPCResponse(status: .ok, data: models))
@@ -272,6 +283,21 @@ final class OmniChatAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Helpers
+
+    /// 顯示缺少 audio provider 的錯誤提示
+    private func showAudioProviderError() {
+        focusApp()
+        let alert = NSAlert()
+        alert.messageText = "No Audio Provider"
+        alert.informativeText = "No audio provider configured.\nAdd a provider with inputType \"audio\" in ~/.config/omnichat/config.json"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Open Config")
+        alert.addButton(withTitle: "OK")
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            NSWorkspace.shared.open(AppConfig.configFile)
+        }
+    }
 
     func focusApp() {
         NSApp.unhide(nil)

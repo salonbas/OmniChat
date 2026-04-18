@@ -88,11 +88,13 @@ struct ProviderInput: Codable, Sendable {
     let messages: [ChatMessage]
     let model: String
     var audioPath: String?  // 語音對話時的音訊檔案路徑
+    var ttsEnabled: Bool?   // TTS 開啟時，提示模型用英文回覆
 
-    init(messages: [ChatMessage], model: String, audioPath: String? = nil) {
+    init(messages: [ChatMessage], model: String, audioPath: String? = nil, ttsEnabled: Bool? = nil) {
         self.messages = messages
         self.model = model
         self.audioPath = audioPath
+        self.ttsEnabled = ttsEnabled
     }
 }
 
@@ -123,10 +125,17 @@ struct AppConfig: Codable, Sendable {
     var hotkey: HotkeyConfig?
     var voice: VoiceConfig?        // 語音對話設定
 
+    /// 輸入類型：文字或音訊
+    enum InputType: String, Codable, Sendable {
+        case text    // 純文字輸入
+        case audio   // 音訊輸入（多模態）
+    }
+
     struct ProviderConfig: Codable, Sendable {
         var command: String
         var defaultModel: String
         var models: [String]
+        var inputType: InputType?  // 預設為 .text
     }
 
     struct ModeConfig: Codable, Sendable {
@@ -160,6 +169,14 @@ struct AppConfig: Codable, Sendable {
         var ttsCommand: String               // TTS 腳本路徑（Kokoro）
         var recordSampleRate: Int?           // 錄音取樣率（預設 16000）
         var feedbackType: String?            // "haptic", "sound", "both"（預設 "both"）
+        var ttsPersistent: Bool?             // TTS server 常駐模式（預設 true）
+        var ttsPort: Int?                    // TTS server port（預設 19876）
+        var ttsSpeed: Double?               // TTS 播放速度（預設 1.5）
+        var ttsSentenceGap: Double?         // 句子間播放間隔秒數（預設 0）
+        var ttsParagraphGap: Double?        // 換行（段落）間播放間隔秒數（預設 1）
+        var ttsMinLength: Int?              // TTS 最短句子長度，短於此會合併（預設 8）
+        var ttsStreaming: Bool?             // 邊生成文字邊 TTS（預設 true，false 則等全部完成再 TTS）
+        var ttsMaxConcurrent: Int?          // 同時運行的 TTS worker 數（預設 2）
     }
 
     // MARK: 路徑
@@ -193,15 +210,15 @@ struct AppConfig: Codable, Sendable {
 
     // MARK: 模型解析
 
-    /// 解析 -m 參數：provider 名稱或 model 名稱
+    /// 解析 -m 參數：provider 名稱或 model 名稱（僅搜尋文字 provider）
     func resolveModel(_ modelArg: String?) -> (command: String, model: String)? {
         if let modelArg {
-            // match provider name
-            if let provider = providers[modelArg] {
+            // match provider name（排除 audio provider）
+            if let provider = providers[modelArg], provider.inputType != .audio {
                 return (expandPath(provider.command), provider.defaultModel)
             }
-            // match model name across all providers
-            for (_, provider) in providers {
+            // match model name across text providers
+            for (_, provider) in providers where provider.inputType != .audio {
                 if provider.models.contains(modelArg) {
                     return (expandPath(provider.command), modelArg)
                 }
@@ -212,8 +229,23 @@ struct AppConfig: Codable, Sendable {
         return (expandPath(provider.command), provider.defaultModel)
     }
 
-    /// 解析語音 provider 指令路徑
+    /// 從 providers 中尋找 inputType == .audio 的 provider
+    func resolveAudioProvider() -> (command: String, model: String)? {
+        for (_, provider) in providers {
+            if provider.inputType == .audio {
+                return (expandPath(provider.command), provider.defaultModel)
+            }
+        }
+        return nil
+    }
+
+    /// 解析語音 provider 指令路徑（優先使用 providers 中的 audio provider，向下相容 voice.providerCommand）
     var resolvedVoiceCommand: String? {
+        // 優先：providers 中標記為 audio 的 provider
+        if let audioProvider = resolveAudioProvider() {
+            return audioProvider.command
+        }
+        // 向下相容：舊的 voice.providerCommand
         guard let voice = voice, voice.enabled else { return nil }
         return expandPath(voice.providerCommand)
     }
@@ -244,12 +276,20 @@ struct AppConfig: Codable, Sendable {
                 "ollama": ProviderConfig(
                     command: "~/.config/omnichat/providers/ollama.sh",
                     defaultModel: "llama3.1:latest",
-                    models: ["llama3.1:latest"]
+                    models: ["llama3.1:latest"],
+                    inputType: .text
                 ),
                 "litert": ProviderConfig(
                     command: "~/.config/omnichat/providers/litert.sh",
                     defaultModel: "gemma-4-E4B",
-                    models: ["gemma-4-E4B"]
+                    models: ["gemma-4-E4B"],
+                    inputType: .text
+                ),
+                "gemma-audio": ProviderConfig(
+                    command: "~/.config/omnichat/providers/gemma_audio.py",
+                    defaultModel: "google/gemma-4-E2B-it",
+                    models: ["google/gemma-4-E2B-it"],
+                    inputType: .audio
                 ),
             ],
             modes: [
@@ -278,7 +318,15 @@ struct AppConfig: Codable, Sendable {
                 providerCommand: "~/.config/omnichat/providers/gemma_voice.sh",
                 ttsCommand: "~/.config/omnichat/tts/kokoro_tts.sh",
                 recordSampleRate: 16000,
-                feedbackType: "both"
+                feedbackType: "both",
+                ttsPersistent: true,
+                ttsPort: 19876,
+                ttsSpeed: 1.5,
+                ttsSentenceGap: 0,
+                ttsParagraphGap: 1,
+                ttsMinLength: 8,
+                ttsStreaming: true,
+                ttsMaxConcurrent: 2
             )
         )
     }
