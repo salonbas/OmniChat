@@ -66,14 +66,19 @@ proc = subprocess.Popen(
     ],
     stdout=subprocess.PIPE,
     stderr=subprocess.DEVNULL,
-    text=True,
-    bufsize=1,  # 行緩衝
 )
 
-# 逐行讀取並即時輸出，過濾 <pad> 與 Markdown 星號
-for line in proc.stdout:
-    cleaned = line.replace("<pad>", "").replace("*", "")
-    if cleaned.strip():
-        print(cleaned, end="", flush=True)
+# 逐塊讀取並即時輸出，過濾 <pad>（完全無緩衝，等同 shell pipe）
+while True:
+    data = os.read(proc.stdout.fileno(), 4096)
+    if not data:
+        break
+    text = data.decode("utf-8", errors="replace").replace("<pad>", "")
+    # 過濾 Markdown 符號、emoji、特殊符號，只保留語音有意義的字元
+    import re
+    text = re.sub(r'[*#_`~$%^&+=<>|\\{}\[\]@]', '', text)
+    text = re.sub(r'[^\x00-\x7F\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\u0080-\u024f\u00c0-\u024f]', '', text)
+    sys.stdout.buffer.write(text.encode("utf-8"))
+    sys.stdout.buffer.flush()
 
 proc.wait()
